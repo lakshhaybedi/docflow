@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, FileText, Lock, Monitor, Moon, PenLine, ShieldCheck, Sparkles, Sun } from 'lucide-react';
 import { ACCENTS, setPrefs, usePrefs } from '../lib/prefs';
 import type { FontFamily } from '../lib/types';
-import { CSS_FONT } from '../lib/pdfwrite';
+import { cssFont } from '../lib/fonts';
 
 type Step = 'welcome' | 'features' | 'customize' | 'tour';
 const STEPS: Step[] = ['welcome', 'features', 'customize', 'tour'];
@@ -124,7 +124,7 @@ function Customize({ next }: { next: () => void }) {
           <span>Text style</span>
           <div className="segmented" role="radiogroup" aria-label="Default text style">
             {(['sans', 'serif', 'mono'] as FontFamily[]).map((f) => (
-              <button key={f} role="radio" aria-checked={p.tools.text.font === f} className={p.tools.text.font === f ? 'is-active' : ''} style={{ fontFamily: CSS_FONT[f] }}
+              <button key={f} role="radio" aria-checked={p.tools.text.font === f} className={p.tools.text.font === f ? 'is-active' : ''} style={{ fontFamily: cssFont(f) }}
                 onClick={() => setPrefs((q) => ({ tools: { ...q.tools, text: { ...q.tools.text, font: f } } }))}>
                 Aa {f === 'sans' ? 'Sans' : f === 'serif' ? 'Serif' : 'Mono'}
               </button>

@@ -3,7 +3,8 @@ import {
   Camera, CheckCircle2, Copy, Eraser, ImageUp, Info, Keyboard, Link, Loader2, PenLine, Search, ShieldAlert, Trash2, Upload, X,
 } from 'lucide-react';
 import { applyRedactions, addTextLayer, type OcrWord } from '../lib/pdfwrite';
-import { renderToCanvas, textRuns } from '../lib/pdf';
+import { openPdf, textRuns } from '../lib/pdf';
+import { ocrPages } from '../lib/ocr';
 import { getList, pushList, removeFromList } from '../lib/store';
 import { IconBtn, Segmented, Toggle, pickFile, toEmbeddable, useToast } from '../ui/ui';
 import { askConfirm } from '../ui/prompt';
@@ -24,6 +25,7 @@ export function RedactPanel() {
   const ed = useEditor();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  const [ocrAfter, setOcrAfter] = useState(true);
   const pending = ed.state.annotations.filter((a) => a.kind === 'redact');
   const pages = new Set(pending.map((a) => a.page));
 
@@ -37,7 +39,7 @@ export function RedactPanel() {
         <>
           <p>This permanently removes the content under {pending.length} area{pending.length > 1 ? 's' : ''} on {pages.size} page{pages.size > 1 ? 's' : ''}. This cannot be undone.</p>
           <ul className="small muted bullets">
-            <li>Redacted pages are rebuilt as images, so their other text won't be selectable. You can run OCR afterwards.</li>
+            <li>Redacted pages are rebuilt as images{ocrAfter ? ', then read back with OCR so the rest of their text stays searchable' : ", so their other text won't be selectable until you run OCR"}.</li>
             <li>Annotations overlapping redacted areas are removed.</li>
             <li>Undo history is cleared, and no export can restore the removed content.</li>
           </ul>
@@ -48,8 +50,23 @@ export function RedactPanel() {
     setBusy('Starting…');
     try {
       const res = await applyRedactions(ed.bytes, ed.state, (_, l) => setBusy(l));
-      await ed.replaceBytes(res.bytes, { ...ed.state, annotations: res.annotations }, true);
-      toast({ kind: 'success', text: `Redaction applied to ${res.pagesRasterized} page${res.pagesRasterized > 1 ? 's' : ''}` });
+      let bytes = res.bytes, searchable = 0;
+      if (ocrAfter) {
+        // Read the redacted page images back so their remaining text is searchable again.
+        // OCR only sees the blacked-out image, so the removed content can't come back.
+        try {
+          const pdf = await openPdf(res.bytes);
+          const { words } = await ocrPages(pdf, res.pages, (p) => setBusy(`Making page ${p.page} of ${p.of} searchable…`)).promise;
+          await pdf.destroy();
+          const layered = await addTextLayer(res.bytes, words);
+          bytes = layered.bytes;
+          searchable = layered.added;
+        } catch {
+          toast({ kind: 'info', text: 'Redaction applied. Making the redacted pages searchable didn\'t work — you can run OCR on them later.' });
+        }
+      }
+      await ed.replaceBytes(bytes, { ...ed.state, annotations: res.annotations }, true);
+      toast({ kind: 'success', text: `Redaction applied to ${res.pagesRasterized} page${res.pagesRasterized > 1 ? 's' : ''}${searchable ? ' · pages kept searchable' : ''}` });
     } catch (e: any) {
       toast({ kind: 'error', text: `Redaction failed — nothing was changed. ${e?.message ?? ''}` });
     } finally {
@@ -67,6 +84,7 @@ export function RedactPanel() {
         </div>
         <p className="muted small">{ed.opts.redactMode === 'area' ? 'Drag over any area to mark it.' : 'Select text on the page to mark it.'}</p>
         <Toggle label="Show live redaction preview" checked={ed.opts.redactPreview} onChange={(redactPreview) => ed.setOpts({ redactPreview })} />
+        <Toggle label="Keep redacted pages searchable (OCR)" checked={ocrAfter} onChange={setOcrAfter} />
         <hr />
         <div className="row-between">
           <span className="eyebrow">Pending · {pending.length}</span>
@@ -464,37 +482,18 @@ export function OcrPanel() {
 
   const run = async () => {
     const pages = scope === 'page' ? [src] : ed.state.pageOrder;
-    let stopped = false;
-    setPhase({ kind: 'running', page: 1, of: pages.length, f: 0, status: 'Loading OCR engine…' });
+    setPhase({ kind: 'running', page: 1, of: pages.length, f: 0, status: 'Preparing OCR…' });
+    const job = ocrPages(ed.pdf, pages, (p) => setPhase((cur) => (cur.kind === 'running' ? { kind: 'running', page: p.page, of: p.of, f: p.fraction, status: p.status } : cur)));
+    cancel.current = job.cancel;
     try {
-      const { createWorker } = await import('tesseract.js');
-      let current = 0;
-      const worker = await createWorker('eng', 1, {
-        logger: (m) => setPhase((p) => (p.kind === 'running' ? { ...p, f: m.progress ?? 0, status: m.status === 'recognizing text' ? `Scanning page ${current + 1} of ${pages.length}` : m.status } : p)),
-      });
-      cancel.current = () => { stopped = true; worker.terminate(); };
-      const words = new Map<number, OcrWord[]>();
-      let text = '';
-      for (const [i, pi] of pages.entries()) {
-        current = i;
-        const scale = 2;
-        const canvas = await renderToCanvas(await ed.pdf.getPage(pi + 1), scale);
-        const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
-        if (stopped) return;
-        text += (pages.length > 1 ? `\n— Page ${ed.state.pageOrder.indexOf(pi) + 1} —\n` : '') + data.text;
-        const ws: OcrWord[] = [];
-        for (const b of data.blocks ?? []) for (const p of b.paragraphs) for (const l of p.lines) for (const w of l.words)
-          if (w.text.trim() && w.confidence > 40) ws.push({ text: w.text, x: w.bbox.x0 / scale, y: w.bbox.y0 / scale, w: (w.bbox.x1 - w.bbox.x0) / scale, h: (w.bbox.y1 - w.bbox.y0) / scale });
-        words.set(pi, ws);
-      }
-      await worker.terminate();
+      const { text, words } = await job.promise;
       cancel.current = null;
-      setPhase({ kind: 'done', text: text.trim(), words });
-      toast({ kind: 'info', text: `OCR scan complete — ${pages.length} page${pages.length > 1 ? 's' : ''} processed` });
+      setPhase({ kind: 'done', text, words });
+      toast({ kind: 'info', text: `OCR complete — ${pages.length} page${pages.length > 1 ? 's' : ''} read` });
     } catch (e: any) {
-      if (stopped) return;
+      if (e?.message === 'cancelled') return;
       setPhase({ kind: 'idle' });
-      toast({ kind: 'error', text: `OCR failed: ${e?.message ?? e}. The engine downloads from cdn.jsdelivr.net — check your connection.` });
+      toast({ kind: 'error', text: `OCR failed: ${e?.message ?? e}` });
     }
   };
 
@@ -523,7 +522,7 @@ export function OcrPanel() {
               { value: 'page', label: `Page ${ed.current + 1}` }, { value: 'all', label: `All ${ed.state.pageOrder.length} pages` },
             ]} />
             {hasText && scope === 'page' && <div className="alert alert-info"><Info size={14} />This page already has selectable text. OCR is for scanned pages.</div>}
-            <p className="small muted">Language: English. OCR runs in your browser — your document isn't uploaded. The engine and language data (~15 MB) download from cdn.jsdelivr.net on first use.</p>
+            <p className="small muted">Language: English. OCR runs entirely on this device — nothing is downloaded or uploaded.</p>
             <button className="btn btn-primary btn-block" onClick={run}>Start OCR scan</button>
           </>
         )}

@@ -19,7 +19,7 @@ export interface Rect { x: number; y: number; w: number; h: number }
 
 interface Base { id: string; page: number /* index into the source PDF, stable across reorders */; createdAt: number }
 
-export type FontFamily = 'sans' | 'serif' | 'mono';
+export type FontFamily = 'sans' | 'serif' | 'mono' | `custom:${string}`;
 export interface TextStyle {
   font: FontFamily;
   size: number;

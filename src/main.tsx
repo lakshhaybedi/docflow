@@ -8,5 +8,9 @@ import './styles.css';
 import './apple.css';
 import './lib/desktop';
 import { App } from './App';
+import { customFonts, installFontFaces } from './lib/fonts';
+
+installFontFaces();
+void customFonts(); // register any fonts the user added
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

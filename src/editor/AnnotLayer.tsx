@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { arrowHead, bbox, inkPath, shapePath } from '../lib/geom';
-import { CSS_FONT } from '../lib/pdfwrite';
+import { cssFont } from '../lib/fonts';
 import type { Annot, AnnotOf } from '../lib/types';
 import { useEditor } from './ctx';
 import { fmtAgo } from '../ui/ui';
@@ -154,7 +154,7 @@ function TextAnnot({ a }: { a: AnnotOf<'text'> }) {
     if (Math.abs(w - a.w) > 0.5 || Math.abs(h - a.h) > 0.5) ed.patch(a.id, { w, h }, false);
   });
   const style: React.CSSProperties = {
-    left: a.x * z, top: a.y * z, fontFamily: CSS_FONT[a.font], fontSize: a.size * z, fontWeight: a.bold ? 700 : 400,
+    left: a.x * z, top: a.y * z, fontFamily: cssFont(a.font), fontSize: a.size * z, fontWeight: a.bold ? 700 : 400,
     fontStyle: a.italic ? 'italic' : 'normal', color: a.color, textAlign: a.align, lineHeight: a.lineHeight,
     letterSpacing: a.letterSpacing * z, background: a.bg,
   };

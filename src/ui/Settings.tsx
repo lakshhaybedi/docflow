@@ -2,9 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, Database, Eye, Monitor, Moon, Palette, PenLine, RotateCcw, Sun, Trash2 } from 'lucide-react';
 import { ACCENTS, SIG_FONTS, resetPrefs, setPrefs, usePrefs, type Prefs, type ToolDefaults } from '../lib/prefs';
 import { deleteDoc, getList, listDocs, removeFromList } from '../lib/store';
-import { CSS_FONT } from '../lib/pdfwrite';
+import { cssFont, customFonts, removeCustomFont, type CustomFont } from '../lib/fonts';
 import type { FontFamily } from '../lib/types';
-import { Modal, Segmented, Toggle, fmtSize, useToast } from './ui';
+import { FontSelect } from './FontSelect';
+import { IconBtn, Modal, Segmented, Toggle, fmtSize, useToast } from './ui';
 import { askConfirm } from './prompt';
 
 let open: (v: boolean) => void = () => {};
@@ -107,19 +108,16 @@ function Editing() {
         <input value={t.author} onChange={(e) => setTools({ author: e.target.value })} onBlur={(e) => !e.target.value.trim() && setTools({ author: 'You' })} aria-label="Your name" />
       </Row>
       <Row label="Text font">
-        <select value={t.text.font} onChange={(e) => setText({ font: e.target.value as FontFamily })} aria-label="Default text font">
-          <option value="sans">Helvetica (Sans)</option>
-          <option value="serif">Times (Serif)</option>
-          <option value="mono">Courier (Mono)</option>
-        </select>
+        <FontSelect value={t.text.font} onChange={(font) => setText({ font })} />
       </Row>
+      <YourFonts />
       <Row label="Text size">
         <select value={t.text.size} onChange={(e) => setText({ size: +e.target.value })} aria-label="Default text size">
           {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32].map((n) => <option key={n} value={n}>{n} pt</option>)}
         </select>
       </Row>
       <Row label="Text color"><ColorPick value={t.text.color} onChange={(color) => setText({ color })} /></Row>
-      <div className="setting-preview" style={{ fontFamily: CSS_FONT[t.text.font], fontSize: Math.min(t.text.size, 24), color: t.text.color }}>The quick brown fox jumps over the lazy dog</div>
+      <div className="setting-preview" style={{ fontFamily: cssFont(t.text.font), fontSize: Math.min(t.text.size, 24), color: t.text.color }}>The quick brown fox jumps over the lazy dog</div>
       <Row label="Highlight color"><ColorPick value={t.markColor} onChange={(markColor) => setTools({ markColor })} swatches={['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#fdba74']} /></Row>
       <Row label="Pen color"><ColorPick value={t.pen.color} onChange={(color) => setTools({ pen: { ...t.pen, color } })} /></Row>
       <Row label="Pen width">
@@ -136,6 +134,25 @@ function Editing() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function YourFonts() {
+  const [fonts, setFonts] = useState<CustomFont[] | null>(null);
+  useEffect(() => void customFonts().then(setFonts), []);
+  if (!fonts?.length) return <p className="tiny muted">Need another font or language? Choose “Add font…” in the font menu to use any .ttf or .otf file. Non-Latin text works out of the box with the built-in fonts.</p>;
+  return (
+    <div className="field">
+      <span>Your fonts</span>
+      <ul className="plain-list">
+        {fonts.map((f) => (
+          <li key={f.id} className="list-row">
+            <span className="list-main" style={{ fontFamily: cssFont(`custom:${f.id}`) }}>{f.name}</span>
+            <IconBtn icon={<Trash2 size={14} />} label={`Remove ${f.name}`} onClick={async () => (await removeCustomFont(f.id), setFonts(await customFonts()))} />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

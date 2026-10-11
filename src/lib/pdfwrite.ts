@@ -6,6 +6,8 @@ import { zipSync } from 'fflate';
 import { openPdf, renderToCanvas, type PDFDocumentProxy } from './pdf';
 import { arrowHead, bbox, inkPath, intersects, inv, mul, shapePath } from './geom';
 import type { Annot, DocState, FontFamily, Rect } from './types';
+import fontkit from '@cantoo/fontkit';
+import { customFonts, metricsOf, notoFile, runs, stdOf, vendorUrl, type Std } from './fonts';
 
 export type Progress = (fraction: number, label: string) => void;
 
@@ -14,27 +16,57 @@ const hex = (h: string) => {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 };
 
-const FONT_NAMES: Record<FontFamily, StandardFonts[]> = {
+const STD_NAMES: Record<Std, StandardFonts[]> = {
   sans: [StandardFonts.Helvetica, StandardFonts.HelveticaBold, StandardFonts.HelveticaOblique, StandardFonts.HelveticaBoldOblique],
   serif: [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold, StandardFonts.TimesRomanItalic, StandardFonts.TimesRomanBoldItalic],
   mono: [StandardFonts.Courier, StandardFonts.CourierBold, StandardFonts.CourierOblique, StandardFonts.CourierBoldOblique],
 };
-/** CSS stacks used on screen — metric-compatible with the PDF standard fonts above. */
-export const CSS_FONT: Record<FontFamily, string> = {
-  sans: 'Helvetica, Arial, sans-serif',
-  serif: '"Times New Roman", Times, serif',
-  mono: '"Courier New", Courier, monospace',
+const fontBytes = new Map<string, Promise<Uint8Array>>();
+const fetchFont = (file: string) => {
+  if (!fontBytes.has(file)) fontBytes.set(file, fetch(vendorUrl(file)).then((r) => {
+    if (!r.ok) throw new Error(`Font ${file} is missing from this build.`);
+    return r.arrayBuffer().then((b) => new Uint8Array(b));
+  }));
+  return fontBytes.get(file)!;
 };
-// ascent/descent of the CSS fonts, used to put the PDF baseline where the browser draws it
-const METRICS: Record<FontFamily, [number, number]> = { sans: [0.905, 0.212], serif: [0.891, 0.216], mono: [0.833, 0.3] };
 
 function fontCache(doc: PDFDocument) {
+  doc.registerFontkit(fontkit);
   const cache = new Map<string, Promise<PDFFont>>();
-  return (family: FontFamily, bold = false, italic = false) => {
-    const name = FONT_NAMES[family][(bold ? 1 : 0) + (italic ? 2 : 0)];
-    if (!cache.has(name)) cache.set(name, doc.embedFont(name));
-    return cache.get(name)!;
+  const once = (key: string, make: () => Promise<PDFFont>) => (cache.has(key) || cache.set(key, make()), cache.get(key)!);
+  return (family: FontFamily, bold = false, italic = false, kind: 'std' | 'noto' | 'deva' | 'custom' = 'std') => {
+    const std = stdOf(family);
+    if (kind === 'custom') return once(family, async () => {
+      const f = (await customFonts()).find((c) => `custom:${c.id}` === family);
+      if (!f) throw new Error('A custom font used in this document was removed. Pick another font for that text.');
+      return doc.embedFont(f.data, { subset: true });
+    });
+    if (kind === 'std') return once(STD_NAMES[std][(bold ? 1 : 0) + (italic ? 2 : 0)], () => doc.embedFont(STD_NAMES[std][(bold ? 1 : 0) + (italic ? 2 : 0)]));
+    const file = notoFile(kind === 'deva' ? 'deva' : std, bold, italic);
+    return once(file, async () => doc.embedFont(await fetchFont(file), { subset: true }));
   };
+}
+
+/** Measures and draws mixed-script text, switching fonts per run exactly like the screen does. */
+async function textWriter(ctx: Ctx, family: FontFamily, bold = false, italic = false) {
+  const fontFor = (kind: ReturnType<typeof runs>[number]['kind']) => ctx.font(family, bold, italic, kind);
+  const split = async (text: string) => Promise.all(runs(text, family).map(async (r) => ({ ...r, font: await fontFor(r.kind) })));
+  const width = async (text: string, size: number, spacing = 0) =>
+    (await split(text)).reduce((t, r) => t + r.font.widthOfTextAtSize(r.text, size), 0) + spacing * [...text].length;
+  const draw = async (page: PDFPage, text: string, x: number, y: number, size: number, color: ReturnType<typeof rgb>, spacing = 0) => {
+    for (const r of await split(text)) {
+      if (!spacing) {
+        page.drawText(r.text, { x, y, size, font: r.font, color });
+        x += r.font.widthOfTextAtSize(r.text, size);
+      } else
+        for (const ch of r.text) {
+          page.drawText(ch, { x, y, size, font: r.font, color });
+          x += r.font.widthOfTextAtSize(ch, size) + spacing;
+        }
+    }
+    return x;
+  };
+  return { width, draw };
 }
 
 /** Matrix that lets us draw in "page units, y-up" (x, H - y) on any page, whatever its rotation or crop box. */
@@ -46,27 +78,18 @@ async function dataUrlBytes(src: string) {
   return new Uint8Array(await (await fetch(src)).arrayBuffer());
 }
 
-function wrap(text: string, font: PDFFont, size: number, maxW: number) {
+async function wrap(text: string, width: (s: string) => Promise<number>, maxW: number) {
   const lines: string[] = [];
   for (const para of text.split('\n')) {
     let line = '';
     for (const word of para.split(' ')) {
       const next = line ? `${line} ${word}` : word;
-      if (line && font.widthOfTextAtSize(next, size) > maxW) (lines.push(line), (line = word));
+      if (line && (await width(next)) > maxW) (lines.push(line), (line = word));
       else line = next;
     }
     lines.push(line);
   }
   return lines;
-}
-
-function safeText(text: string, font: PDFFont) {
-  try {
-    font.encodeText(text);
-    return text;
-  } catch {
-    throw new Error(`"${text.slice(0, 30)}" uses characters the built-in PDF fonts can't encode (only Latin text is supported).`);
-  }
 }
 
 interface Ctx {
@@ -96,31 +119,24 @@ async function drawAnnots(ctx: Ctx, page: PDFPage, srcIndex: number, annots: Ann
           const c = a.cover ?? a;
           page.drawRectangle({ x: c.x - 1, y: Y(c.y + c.h) - 1, width: c.w + 2, height: c.h + 2, color: hex(a.bg) });
         }
-        const font = await ctx.font(a.font, a.bold, a.italic);
-        const lines = a.text.split('\n');
+        const tw = await textWriter(ctx, a.font, a.bold, a.italic);
         const lh = a.size * a.lineHeight;
-        const [asc, desc] = METRICS[a.font];
+        const [asc, desc] = metricsOf(a.font);
         const base = (lh - (asc + desc) * a.size) / 2 + asc * a.size;
-        const widthOf = (s: string) => font.widthOfTextAtSize(safeText(s, font), a.size) + a.letterSpacing * Math.max(0, s.length);
-        lines.forEach((line, i) => {
-          const lw = widthOf(line);
-          let x = a.x + (a.align === 'center' ? (a.w - lw) / 2 : a.align === 'right' ? a.w - lw : 0);
-          const y = Y(a.y + i * lh + base);
-          if (!a.letterSpacing) page.drawText(line, { x, y, size: a.size, font, color: hex(a.color) });
-          else
-            for (const ch of line) {
-              page.drawText(ch, { x, y, size: a.size, font, color: hex(a.color) });
-              x += font.widthOfTextAtSize(ch, a.size) + a.letterSpacing;
-            }
-        });
+        const lines = a.text.split('\n');
+        for (const [i, line] of lines.entries()) {
+          const lw = await tw.width(line, a.size, a.letterSpacing);
+          const x = a.x + (a.align === 'center' ? (a.w - lw) / 2 : a.align === 'right' ? a.w - lw : 0);
+          await tw.draw(page, line, x, Y(a.y + i * lh + base), a.size, hex(a.color), a.letterSpacing);
+        }
         break;
       }
       case 'note': {
         page.drawRectangle({ x: a.x, y: Y(a.y + a.h), width: a.w, height: a.h, color: hex(a.color) });
-        const font = await ctx.font('sans');
-        wrap(safeText(a.text, font), font, 9, a.w - 16).forEach((l, i) => {
-          if (16 + i * 12 < a.h) page.drawText(l, { x: a.x + 8, y: Y(a.y + 16 + i * 12), size: 9, font, color: rgb(0.12, 0.16, 0.22) });
-        });
+        const tw = await textWriter(ctx, 'sans');
+        const lines = await wrap(a.text, (t) => tw.width(t, 9), a.w - 16);
+        for (const [i, l] of lines.entries())
+          if (16 + i * 12 < a.h) await tw.draw(page, l, a.x + 8, Y(a.y + 16 + i * 12), 9, rgb(0.12, 0.16, 0.22));
         break;
       }
       case 'comment': {
@@ -138,10 +154,10 @@ async function drawAnnots(ctx: Ctx, page: PDFPage, srcIndex: number, annots: Ann
         page.drawLine({ start: { x: a.x1, y: Y(a.y1) }, end: { x: a.x2, y: Y(a.y2) }, thickness: a.width, color, lineCap: LineCapStyle.Round });
         page.drawSvgPath(arrowHead(a.x1, a.y1, a.x2, a.y2, a.width), { x: 0, y: H, color });
         if (a.text) {
-          const font = await ctx.font('sans');
-          const w = font.widthOfTextAtSize(safeText(a.text, font), 10) + 12;
+          const tw = await textWriter(ctx, 'sans');
+          const w = (await tw.width(a.text, 10)) + 12;
           page.drawRectangle({ x: a.x1 - w / 2, y: Y(a.y1 + 10), width: w, height: 20, color: rgb(1, 1, 1), borderColor: color, borderWidth: 1 });
-          page.drawText(a.text, { x: a.x1 - w / 2 + 6, y: Y(a.y1 + 3.5), size: 10, font, color: rgb(0.07, 0.09, 0.15) });
+          await tw.draw(page, a.text, a.x1 - w / 2 + 6, Y(a.y1 + 3.5), 10, rgb(0.07, 0.09, 0.15));
         }
         break;
       }
@@ -162,10 +178,10 @@ async function drawAnnots(ctx: Ctx, page: PDFPage, srcIndex: number, annots: Ann
       }
       case 'stamp': {
         const color = hex(a.color);
-        const font = await ctx.font('sans', true);
-        const size = Math.min(a.h * 0.45, (a.w - 12) / (font.widthOfTextAtSize(a.label, 1) || 1));
+        const tw = await textWriter(ctx, 'sans', true);
+        const size = Math.min(a.h * 0.45, (a.w - 12) / ((await tw.width(a.label, 1)) || 1));
         page.drawRectangle({ x: a.x, y: Y(a.y + a.h), width: a.w, height: a.h, borderColor: color, borderWidth: 2, color: rgb(1, 1, 1), opacity: 0.85 });
-        page.drawText(a.label, { x: a.x + (a.w - font.widthOfTextAtSize(a.label, size)) / 2, y: Y(a.y + a.h / 2 + size * 0.35), size, font, color });
+        await tw.draw(page, a.label, a.x + (a.w - (await tw.width(a.label, size))) / 2, Y(a.y + a.h / 2 + size * 0.35), size, color);
         break;
       }
       case 'blur': {
@@ -342,7 +358,7 @@ export async function applyRedactions(bytes: Uint8Array, state: DocState, progre
   const annotations = state.annotations.filter(
     (a) => a.kind !== 'redact' && !(byPage.get(a.page) ?? []).some((r) => intersects(r, bbox(a))),
   );
-  return { bytes: out, annotations, pagesRasterized: byPage.size };
+  return { bytes: out, annotations, pagesRasterized: byPage.size, pages: [...byPage.keys()] };
 }
 
 export interface OcrWord { text: string; x: number; y: number; w: number; h: number }

@@ -5,6 +5,7 @@ import {
 import type { Annot, AnnotOf, FontFamily, ShapeKind, TextStyle } from '../lib/types';
 import { bbox } from '../lib/geom';
 import { IconBtn, Segmented, Toggle } from '../ui/ui';
+import { FontSelect } from '../ui/FontSelect';
 import { MARKS, SWATCHES, useEditor, type ToolOpts } from './ctx';
 import { ImagePanel, OcrPanel, RedactPanel, SignaturePanel, StampPanel } from './panels';
 
@@ -66,11 +67,7 @@ function Typography({ s, set }: { s: TextStyle; set: (p: Partial<TextStyle>) => 
     <div className="stack">
       <label className="field">
         <span>Font</span>
-        <select value={s.font} onChange={(e) => set({ font: e.target.value as FontFamily })}>
-          <option value="sans">Helvetica (Sans)</option>
-          <option value="serif">Times (Serif)</option>
-          <option value="mono">Courier (Mono)</option>
-        </select>
+        <FontSelect value={s.font} onChange={(font) => set({ font })} />
       </label>
       <div className="grid2">
         <label className="field">

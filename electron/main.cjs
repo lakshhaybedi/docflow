@@ -8,7 +8,7 @@ const DEV_URL = process.env.DOCFLOW_DEV_URL; // e.g. http://localhost:5180 while
 const DIST = path.join(__dirname, '..', 'dist');
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net", // OCR engine loads from jsDelivr on first use
+  "script-src 'self' 'wasm-unsafe-eval' blob:", // OCR engine and fonts ship with the app
   "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",

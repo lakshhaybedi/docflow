@@ -1,35 +1,103 @@
-# DocFlow
+<p align="center">
+  <img src="docs/assets/icon.png" width="112" alt="DocFlow icon" />
+</p>
 
-Desktop-first PDF workspace: read, annotate, edit, sign, redact, OCR, organize and export PDFs — entirely in the browser.
+<h1 align="center">DocFlow</h1>
 
-```
+<p align="center">
+  Read, edit, sign and securely redact PDFs — entirely on your Mac.<br />
+  No account. No uploads.
+</p>
+
+<p align="center">
+  <a href="https://github.com/lakshhaybedi/docflow/releases/latest"><b>Download for Mac</b></a> ·
+  <a href="https://lakshhaybedi.github.io/docflow/">Website</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#build-from-source">Build from source</a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/signature.png" alt="DocFlow editing a PDF with the signature panel open" />
+</p>
+
+## Features
+
+| | |
+|---|---|
+| **Annotate** | Highlight, underline, strikethrough, sticky notes, comments, callout arrows, freehand drawing, shapes, stamps and stickers |
+| **Edit text** | Add text with font, size, weight, color, alignment, line height and letter spacing — or retouch existing lines |
+| **Sign** | Type, draw, upload or scan a signature from paper with your webcam; save it and reuse it |
+| **Redact for real** | Removes the underlying content from the file and verifies it's gone before reporting success |
+| **OCR** | Recognize text on scanned pages, copy it, or make the document searchable |
+| **Organize** | Thumbnails, bookmarks, outline, search with match-case / whole-word, drag-to-reorder pages |
+| **Manage files** | Merge, compress, duplicate, rename, star, label (Draft, Review, Approved…), folders and bulk actions |
+| **Export** | PDF, PNG or JPG, custom page ranges, quality settings, AES-256 password protection, real PDF comments |
+| **Make it yours** | Light / dark / auto, any accent color, default fonts and styles, sepia and night page tones |
+| **Feels like a Mac app** | Glass toolbar, smooth motion, native menus, ⌘O / Open With, guided first-run tour |
+
+<p align="center">
+  <img src="docs/assets/editor-dark.png" width="49%" alt="Dark mode" />
+  <img src="docs/assets/onboarding.png" width="49%" alt="Onboarding" />
+</p>
+
+## Install
+
+1. Download `DocFlow-x.y.z-arm64.dmg` from the [latest release](https://github.com/lakshhaybedi/docflow/releases/latest).
+2. Open it and drag **DocFlow** into **Applications**.
+3. The first time, **right-click DocFlow › Open** and confirm.
+   If there's no Open button, go to **System Settings › Privacy & Security** and choose **Open Anyway**.
+
+DocFlow isn't notarized by Apple yet, which is why macOS asks once.
+Requires **macOS 13 Ventura or later** on **Apple Silicon**.
+
+## Build from source
+
+Requires Node.js 20 or later.
+
+```bash
+git clone https://github.com/lakshhaybedi/docflow.git
+cd docflow
 npm install
-npm run dev        # web version at http://localhost:5180
-npm run app        # build and launch the macOS app
-npm run dist:mac   # build release/DocFlow-<version>-arm64.dmg
 ```
 
-The macOS app (Electron) adds native window vibrancy, a menu bar, File › Open, “Open With” for PDFs and native save dialogs.
-First launch shows a skippable welcome, customization step, and a guided tour on a generated practice document.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Web version at http://localhost:5180 |
+| `npm run app` | Build and launch the macOS app |
+| `npm run dist:mac` | Build `release/DocFlow-<version>-arm64.dmg` |
+| `npm run build` | Type-check and build the web bundle into `dist/` |
 
-> Release builds are ad-hoc signed, not notarized. On another Mac, right-click › Open the first time
-> (or approve it in System Settings › Privacy & Security).
+## Privacy
 
-## Where things live
-- `src/lib/pdf.ts` — pdf.js loading, rendering, text runs, search, outline
-- `src/lib/pdfwrite.ts` — everything that writes PDFs: flatten/export, merge, compress, secure redaction, OCR text layer, encryption
-- `src/lib/geom.ts` — shapes/arrows/ink geometry shared by the on-screen overlay and the PDF writer
-- `src/lib/store.ts` — IndexedDB persistence (documents never leave the browser)
-- `src/editor/*` — editor shell, viewer, annotation layer, panels; `src/dashboard/*` — file management
-- `src/onboarding/*` — welcome flow, guided tour, practice document; `src/lib/prefs.ts` — theme, accent and defaults
-- `src/apple.css` — glass materials and motion; `electron/` — macOS shell (main process + preload bridge)
+Documents are stored in the app's local storage and processed on-device. Nothing is uploaded, there's no account and no analytics.
+The only network requests are ones you start:
 
-Annotations are stored in page units (PDF points, top-left origin, rotation applied) so they're zoom-independent and map 1:1 to export.
+- **OCR** downloads the Tesseract engine and English language data from cdn.jsdelivr.net on first use.
+- **Stock image search** sends your search terms to [Openverse](https://openverse.org).
 
-## Honest limits
-- **Redaction** rebuilds each redacted page as an image (180 dpi) so no underlying text/vectors survive; output is verified to contain no text on those pages before success is reported. Those pages lose selectable text until you OCR them.
-- **Edit existing text** covers the original run and draws new text; the original remains underneath (the UI says so).
-- **Blur** is visual only (labelled as such). **Signatures** are images, not cryptographic signatures.
-- **Fonts**: added text uses the PDF standard fonts (Helvetica/Times/Courier) — Latin text only.
-- **Word/PowerPoint** export needs a conversion engine and is shown as unavailable.
-- **Network**: OCR downloads Tesseract + English data from cdn.jsdelivr.net on first use; stock image search queries openverse.org. Nothing else is sent anywhere.
+## How it works
+
+- **Rendering** — [PDF.js](https://mozilla.github.io/pdf.js/) draws pages and the selectable text layer. Pages render lazily as you scroll.
+- **Writing** — [pdf-lib](https://github.com/cantoo-scribe/pdf-lib) flattens annotations into the PDF, merges, compresses and encrypts. Annotations are stored in page coordinates, so they're zoom-independent and map 1:1 to export.
+- **Redaction** — each redacted page is rebuilt as an image with the areas painted out, in a brand-new document, so the original text and graphics aren't carried over. The output is re-opened and checked for leftover text before success is reported.
+- **Desktop** — an [Electron](https://www.electronjs.org/) shell serves the web build from a private `app://` origin with a strict content security policy, sandboxed renderer and a minimal preload bridge.
+
+```
+src/
+  lib/          pdf.ts (rendering, search) · pdfwrite.ts (export, redaction, OCR layer) · store.ts (IndexedDB) · prefs.ts
+  editor/       editor shell, viewer, annotation layer, toolbar, side panels, export dialog, page organizer
+  dashboard/    file management and quick tools (merge, compress, convert)
+  onboarding/   welcome flow, guided tour, practice document
+  ui/           shared components, settings, tooltips, prompts
+  apple.css     glass materials and motion
+electron/       macOS shell (main process + preload)
+docs/           landing page (GitHub Pages)
+```
+
+## Known limitations
+
+- **Redacted pages become images.** Their remaining text isn't selectable until you run OCR on them.
+- **Editing existing text covers the original.** The original stays in the file underneath (the app says so); use Redact to remove it.
+- **Added text uses the PDF standard fonts** (Helvetica, Times, Courier), so Latin characters only.
+- **Word and PowerPoint export** aren't available yet; PDF, PNG and JPG are.
+- **Not notarized** yet, and builds are Apple Silicon only.

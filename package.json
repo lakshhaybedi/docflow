@@ -1,0 +1,101 @@
+{
+  "name": "docflow",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "app:dev": "DOCFLOW_DEV_URL=http://localhost:5180 electron .",
+    "app": "vite build && electron .",
+    "dist:mac": "vite build && electron-builder --mac dmg --arm64"
+  },
+  "devDependencies": {
+    "@cantoo/pdf-lib": "^2.11.1",
+    "@fontsource/caveat": "^5.3.0",
+    "@fontsource/dancing-script": "^5.3.0",
+    "@fontsource/great-vibes": "^5.3.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "fflate": "^0.8.3",
+    "idb-keyval": "^6.3.0",
+    "lucide-react": "^1.55.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tesseract.js": "^7.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  },
+  "allowScripts": {
+    "electron@44.7.0": true
+  },
+  "main": "electron/main.cjs",
+  "productName": "DocFlow",
+  "description": "Read, edit, sign and protect PDFs \u2014 privately, on your Mac.",
+  "author": "DocFlow",
+  "build": {
+    "appId": "app.docflow.desktop",
+    "productName": "DocFlow",
+    "copyright": "\u00a9 2026 DocFlow",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "darkModeSupport": true,
+      "extendInfo": {
+        "NSCameraUsageDescription": "DocFlow uses the camera only when you choose to capture a signature from paper."
+      }
+    },
+    "dmg": {
+      "title": "DocFlow",
+      "window": {
+        "width": 560,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF Document",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

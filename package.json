@@ -1,7 +1,7 @@
 {
   "name": "docflow",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -42,12 +42,12 @@
   },
   "main": "electron/main.cjs",
   "productName": "DocFlow",
-  "description": "Read, edit, sign and protect PDFs \u2014 privately, on your Mac.",
+  "description": "Read, edit, sign and protect PDFs — privately, on your Mac.",
   "author": "DocFlow",
   "build": {
     "appId": "app.docflow.desktop",
     "productName": "DocFlow",
-    "copyright": "\u00a9 2026 DocFlow",
+    "copyright": "© 2026 DocFlow",
     "directories": {
       "output": "release",
       "buildResources": "build"
